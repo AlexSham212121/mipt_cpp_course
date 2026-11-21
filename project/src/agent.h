@@ -1,0 +1,55 @@
+#ifndef NANO_EDR_AGENT_H
+#define NANO_EDR_AGENT_H
+ 
+#include <cstddef>
+#include <map>
+#include <string>
+#include <vector>
+ 
+#include "event.h"
+#include "event_source.h"
+#include "ring_buffer.h"
+#include "rule_engine.h"
+#include "entity_model.h"
+#include "window_entry.h"
+#include "response.h"
+
+namespace nano_edr {
+ 
+class Agent : public IEventHandler {
+public:
+    static constexpr std::size_t kWindowCapacity = 256;
+ 
+    explicit Agent(bool quiet);
+
+    Agent(bool quiet, uint64_t dedup_period_ms);
+ 
+    void EnableResponse(OsHandle* os, bool dry_run, const std::string& quarantine_dir);
+    void Subscribe(AlertSink sink);
+    void HandleEvent(const Event& event) override;
+    void OnSkipped() override;
+    void OnBroken() override;
+    void OnTick() override;
+ 
+    void PrintSummary() const;
+ 
+private:
+    std::unique_ptr<ResponsePlanner> planner_{};
+    std::unique_ptr<Responder> responder_{};
+    uint64_t dedup_window_{};
+    std::size_t dropped_{};
+    RingBuffer<WindowEntry, kWindowCapacity> window_;
+    bool quiet_;
+    EntityModel model_;
+    RuleEngine engine_;
+    std::size_t events_ = 0;
+    std::map<std::string, std::size_t> events_by_type_;
+    std::size_t skipped_ = 0;
+    std::size_t broken_ = 0;
+    void PrintCtx();
+    bool context_printed_ = false;
+};
+ 
+}
+ 
+#endif
