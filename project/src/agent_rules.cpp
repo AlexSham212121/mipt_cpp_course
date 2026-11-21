@@ -10,7 +10,7 @@
 
 namespace nano_edr {
 
-RuleEngine BuildAgentRules() {
+RuleEngine BuildAgentRules(const EntityModel* model) {
     RuleEngine engine;
 
     auto r1 = std::make_unique<MatchRule>("script_host_from_temp", Severity::kHigh);
@@ -122,7 +122,6 @@ RuleEngine BuildAgentRules() {
     start6->Add(std::move(temp6));
     r6->SetFirst(std::move(start6));
     r6->SetSecond(std::make_unique<EventTypeIs>(std::vector<EventType>{EventType::kNetConnect}));
-    r6->set_same_pid(false);
     r6->AddAction("kill_process");
     engine.AddRule(std::move(r6));
 
@@ -135,6 +134,44 @@ RuleEngine BuildAgentRules() {
     mass_write->AddAction("kill_process");
     mass_write->AddAction("quarantine_file");
     engine.AddRule(std::move(mass_write));
+
+    auto shell = MakeRule<SequenceRule>("shell_spawns_script_host", Severity::kHigh, 30000);
+
+    auto first8 = std::make_unique<AllOf>();
+    first8->Add(std::make_unique<EventTypeIs>(std::vector<EventType>{EventType::kProcessStart}));
+    auto shells = std::make_unique<AnyOf>();
+    shells->Add(std::make_unique<FieldEndsWith>("image", "cmd.exe"));
+    shells->Add(std::make_unique<FieldEndsWith>("image", "powershell.exe"));
+    shells->Add(std::make_unique<FieldEndsWith>("image", "pwsh.exe"));
+    first8->Add(std::move(shells));
+
+    auto second8 = std::make_unique<AllOf>();
+    second8->Add(std::make_unique<EventTypeIs>(std::vector<EventType>{EventType::kProcessStart}));
+    auto hosts = std::make_unique<AnyOf>();
+    hosts->Add(std::make_unique<FieldEndsWith>("image", "wscript.exe"));
+    hosts->Add(std::make_unique<FieldEndsWith>("image", "cscript.exe"));
+    second8->Add(std::move(hosts));
+
+    shell->SetFirst(std::move(first8));
+    shell->SetSecond(std::move(second8));
+    shell->set_child_of_prev(true);
+    shell->SetModel(model);
+    shell->AddAction("kill_process");
+    engine.AddRule(std::move(shell));
+
+    auto dropped = MakeRule<LambdaRule>("spawned_from_dropped_file", Severity::kHigh, 
+        [model](const Event& event) {
+            if (event.event_type() != EventType::kProcessStart) {
+                return false;
+            }
+            const FileRecord* source = model->FindSpawnSource(event.pid());
+            return source != nullptr &&
+                   !source->writer_pid.empty() &&
+                   source->writer_pid != event.pid();
+        });
+    dropped->AddAction("kill_process");
+    dropped->AddAction("quarantine_file");
+    engine.AddRule(std::move(dropped));
 
     return engine;
 }
