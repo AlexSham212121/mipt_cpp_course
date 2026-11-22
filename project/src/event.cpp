@@ -1,12 +1,14 @@
 #include "event.h"
+#include "copy_stats.h"
 
 #include <charconv>
 #include <sstream>
 #include <stdexcept>
+#include <utility>
 
 
 namespace nano_edr {
-
+    
 EventType EventTypeFromString(const std::string& type) {
     if (type == "process_start") return EventType::kProcessStart;
     if (type == "process_end")   return EventType::kProcessEnd;
@@ -18,25 +20,40 @@ EventType EventTypeFromString(const std::string& type) {
     return EventType::kOther;
 }
 
-Event::Event(const EventParts& parts) {
-    if (parts.ts.empty()) {
+Timestamp Event::Validate(const std::string& raw_ts, const std::string& type) {
+    if (raw_ts.empty()) {
         throw std::invalid_argument("пустое время события");
     }
-    if (parts.type.empty()) {
+    if (type.empty()) {
         throw std::invalid_argument("пустой тип события");
     }
 
     uint64_t value = 0;
-    auto [ptr, ec] = std::from_chars(parts.ts.data(), parts.ts.data() + parts.ts.size(), value);
-    if (ec != std::errc{} || ptr != parts.ts.data() + parts.ts.size()) {
-        throw std::invalid_argument("неверное время события: " + parts.ts);
+    auto [ptr, ec] = std::from_chars(raw_ts.data(), raw_ts.data() + raw_ts.size(), value);
+    if (ec != std::errc{} || ptr != raw_ts.data() + raw_ts.size()) {
+        throw std::invalid_argument("неверное время события: " + raw_ts);
     }
-    ts_ = Timestamp{value};
+    return Timestamp{value};
+}
+
+Event::Event(const EventParts& parts) {
+    ts_ = Validate(parts.ts, parts.type);
+    copy_stats().event_strings_copied += 3 + 2 * parts.fields.size();
     raw_ts_ = parts.ts;
     event_type_ = EventTypeFromString(parts.type);
     type_ = parts.type;
     pid_ = parts.pid;
     fields_ = parts.fields;
+}
+
+Event::Event(EventParts&& parts) {
+    ts_ = Validate(parts.ts, parts.type);
+    event_type_ = EventTypeFromString(parts.type);
+    copy_stats().event_strings_moved += 3 + 2 * parts.fields.size();
+    raw_ts_ = std::move(parts.ts);
+    type_ = std::move(parts.type);
+    pid_ = std::move(parts.pid);
+    fields_ = std::move(parts.fields);
 }
 
 std::string ToString(const Event& event) {

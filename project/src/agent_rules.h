@@ -3,11 +3,11 @@
 
 #include <vector>
 #include "rule_engine.h"
+#include "entity_model.h"
 
 namespace nano_edr {
     
 RuleEngine BuildAgentRules(const EntityModel* model);
 
 }
-
 #endif

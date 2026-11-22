@@ -28,6 +28,8 @@ RuleEngine BuildAgentRules(const EntityModel* model) {
     temp1->Add(std::make_unique<FieldContains>("cmdline", "%tmp%"));
     r1->AddCondition(std::move(temp1));
     r1->AddAction("kill_process");
+    r1->AddAction("quarantine_source");
+    r1->AddAction("delete_dropped");
     engine.AddRule(std::move(r1));
 
     auto r2 = std::make_unique<MatchRule>("lolbin_download", Severity::kHigh);
@@ -81,7 +83,7 @@ RuleEngine BuildAgentRules(const EntityModel* model) {
     either4->Add(std::move(variant_4b));
     r4->AddCondition(std::move(either4));
 
-    r4->AddAction("quarantine_file");
+    r4->AddAction("delete_evidence");
     engine.AddRule(std::move(r4));
 
     auto r5 = std::make_unique<MatchRule>("ransom_extension", Severity::kCritical);
@@ -99,19 +101,17 @@ RuleEngine BuildAgentRules(const EntityModel* model) {
     either_5->Add(std::move(variant_5b));
     r5->AddCondition(std::move(either_5));
 
-    r5->AddAction("quarantine_file");
+    r5->AddAction("kill_process");
+    r5->AddAction("quarantine_image");
     engine.AddRule(std::move(r5));
 
     auto r6 = std::make_unique<SequenceRule>("script_host_beacon", Severity::kCritical, 10000);
     auto start6 = std::make_unique<AllOf>();
-
     start6->Add(std::make_unique<EventTypeIs>(std::vector<EventType>{EventType::kProcessStart}));
-
     auto image6 = std::make_unique<AnyOf>();
     image6->Add(std::make_unique<FieldEndsWith>("image", "wscript.exe"));
     image6->Add(std::make_unique<FieldEndsWith>("image", "cscript.exe"));
     start6->Add(std::move(image6));
-
     auto temp6 = std::make_unique<AnyOf>();
     temp6->Add(std::make_unique<FieldContains>("cmdline", "\\appdata\\local\\temp\\"));
     temp6->Add(std::make_unique<FieldContains>("cmdline", "/appdata/local/temp/"));
@@ -132,11 +132,10 @@ RuleEngine BuildAgentRules(const EntityModel* model) {
                     FieldContains("to", "\\Documents\\"),
                     FieldContains("to", "\\Desktop\\")))));
     mass_write->AddAction("kill_process");
-    mass_write->AddAction("quarantine_file");
+    mass_write->AddAction("quarantine_image");
     engine.AddRule(std::move(mass_write));
 
     auto shell = MakeRule<SequenceRule>("shell_spawns_script_host", Severity::kHigh, 30000);
-
     auto first8 = std::make_unique<AllOf>();
     first8->Add(std::make_unique<EventTypeIs>(std::vector<EventType>{EventType::kProcessStart}));
     auto shells = std::make_unique<AnyOf>();
@@ -144,14 +143,12 @@ RuleEngine BuildAgentRules(const EntityModel* model) {
     shells->Add(std::make_unique<FieldEndsWith>("image", "powershell.exe"));
     shells->Add(std::make_unique<FieldEndsWith>("image", "pwsh.exe"));
     first8->Add(std::move(shells));
-
     auto second8 = std::make_unique<AllOf>();
     second8->Add(std::make_unique<EventTypeIs>(std::vector<EventType>{EventType::kProcessStart}));
     auto hosts = std::make_unique<AnyOf>();
     hosts->Add(std::make_unique<FieldEndsWith>("image", "wscript.exe"));
     hosts->Add(std::make_unique<FieldEndsWith>("image", "cscript.exe"));
     second8->Add(std::move(hosts));
-
     shell->SetFirst(std::move(first8));
     shell->SetSecond(std::move(second8));
     shell->set_child_of_prev(true);
@@ -170,7 +167,8 @@ RuleEngine BuildAgentRules(const EntityModel* model) {
                    source->writer_pid != event.pid();
         });
     dropped->AddAction("kill_process");
-    dropped->AddAction("quarantine_file");
+    dropped->AddAction("quarantine_source");
+    dropped->AddAction("delete_dropped");
     engine.AddRule(std::move(dropped));
 
     return engine;

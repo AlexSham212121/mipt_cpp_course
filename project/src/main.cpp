@@ -10,6 +10,7 @@
 #include "sources.h"
 #include "edr_handle.h"
 #include "field_traits.h"
+#include "copy_stats.h"
 
 namespace {
 
@@ -17,6 +18,8 @@ struct Options {
     std::string logPath;
     bool quiet = false;
     bool useFile = false;
+    bool copies = false;
+    bool dry_run = false;
     std::string out;
 };
 }
@@ -36,6 +39,10 @@ bool ParseOptions(int argc, char** argv, Options* out) {
             if (i + 1 >= argc || !options.logPath.empty()) return false;
             options.useFile = true;
             options.logPath = argv[++i];
+        } else if (arg == "--copies") {
+            options.copies = true;
+        } else if (arg == "--dry-run") {
+            options.dry_run = true;
         }else if (arg == "--out" ){
             if (i + 1 >= argc) {
                 return false;
@@ -68,13 +75,20 @@ int main(int argc, char** argv) {
 
     try {
         nano_edr::EdrHandle edr(options.logPath);
-
         const std::string text = edr.Config("dedup_period_ms", "10000");
         uint64_t dedup_period_ms = 0;
         if (!nano_edr::FieldTraits<uint64_t>::Parse(text, &dedup_period_ms)) {
             std::print(stderr, "[WARN] dedup_period_ms не разбирается: {}\n", text);
             dedup_period_ms = 10000;
         }
+
+        std::unique_ptr<nano_edr::IEventSource> source;
+        if (options.useFile) {
+            source = std::make_unique<nano_edr::FileSource>(options.logPath);
+        } else {
+            source = std::make_unique<nano_edr::OsSource>(options.logPath);
+        }
+
         nano_edr::Agent agent(options.quiet, dedup_period_ms);
 
         nano_edr::FanOutSink targets;
@@ -85,18 +99,19 @@ int main(int argc, char** argv) {
         targets.Add(nano_edr::EdrSink(&edr));
         agent.Subscribe(std::move(targets));
 
-        std::unique_ptr<nano_edr::IEventSource> source;
-        if (options.useFile) {
-            source = std::make_unique<nano_edr::FileSource>(options.logPath);
-        } else {
-            source = std::make_unique<nano_edr::OsSource>(options.logPath);
-        }
+        agent.EnableResponse(source->os(), options.dry_run, edr.Config("quarantine_dir", "C:\\quarantine"));
         source->Run(&agent);
-
         if (edr.Flush() != EDR_OK) {
             std::print(stderr, "[WARN] детекты не отправлены\n");
         }
         agent.PrintSummary();
+        if (options.copies) {
+            const nano_edr::CopyStats& s = nano_edr::copy_stats();
+            std::print("[COPY] строк события скопировано {}, перемещено {}\n", s.event_strings_copied, s.event_strings_moved);
+            std::print("[COPY] записей WindowEntry скопировано {}, перемещено {}\n", s.window_copied, s.window_moved);
+            std::print("[COPY] событий скопировано в детекты {}\n", s.evidence_copied);
+            std::print("[COPY] копий всего {}\n", s.total());
+        }
     }catch (const std::exception& error) {
         std::print(stderr, "{}\n", error.what());
         return 1;

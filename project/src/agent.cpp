@@ -13,6 +13,14 @@ Agent::Agent(bool quiet, uint64_t dedup_window)
     engine_.SetModel(&model_);
 }
 
+void Agent::EnableResponse(OsHandle* os, bool dry_run, const std::string& quarantine_dir) {
+    planner_ = std::make_unique<ResponsePlanner>(&model_, quarantine_dir);
+    responder_ = std::make_unique<Responder>(os, dry_run);
+    engine_.Subscribe([this](const Detection& detection) {
+        responder_->Execute(planner_->Plan(detection));
+    });
+}
+
 void Agent::Subscribe(AlertSink sink) {
     FanOutSink all;
     all.Add([this](const Detection&) { PrintCtx(); });
@@ -40,9 +48,21 @@ void Agent::HandleEvent(const Event& event) {
         ++events_;
         ++events_by_type_[event.type()];
     }
+    if (responder_ != nullptr && responder_->Recognize(event)) {
+        WindowEntry own;
+        own.ts = event.ts();
+        own.type = event.type();
+        own.pid = event.pid();
+        window_.PushBack(std::move(own));
+        return;
+    }
     context_printed_ = false;
     engine_.ProcessEvent(event, nullptr);
-    window_.PushBack(WindowEntry{event.ts(), event.type(), event.pid()});
+    WindowEntry entry;
+    entry.ts = event.ts();
+    entry.type = event.type();
+    entry.pid = event.pid();
+    window_.PushBack(std::move(entry));
 }
 
 void Agent::OnSkipped() {
@@ -67,6 +87,14 @@ void Agent::PrintSummary() const {
     std::print("[STAT] в окне {} из {} мест\n", window_.size(), kWindowCapacity);
     std::print("[STAT] в окне {} из {} мест\n", window_.size(), kWindowCapacity);
     std::print("[STAT] в модели процессов {}, файлов {}\n", model_.process_count(), model_.file_count());
+    if (responder_ != nullptr) {
+        const ResponseStats& r = responder_->stats();
+        std::print("[STAT] действий запланировано {}, повторов отброшено {}\n", r.planned, r.skipped_repeat);
+        std::print("[STAT] завершено процессов {}, изолировано файлов {}, удалено файлов {}\n", r.killed, r.quarantined, r.deleted);
+        if (r.own_events > 0) {
+            std::print("[STAT] своих событий {}\n", r.own_events);
+        }
+    }
     std::print("--- Срабатывания правил ---\n");
     for (std::size_t i = 0; i < engine_.size(); ++i) {
         const IRule& rule = engine_.rule(i);

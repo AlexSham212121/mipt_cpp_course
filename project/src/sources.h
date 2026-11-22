@@ -24,6 +24,7 @@ public:
     void Run(IEventHandler* handler) override;
     static void Trampoline(const os_event* ev, void* ctx) noexcept;
 
+    OsHandle* os() override { return &handle_; }
 private:
     OsHandle handle_;
 };
