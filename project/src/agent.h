@@ -10,7 +10,8 @@
 #include "event_source.h"
 #include "ring_buffer.h"
 #include "rule_engine.h"
- 
+#include "entity_model.h"
+
 namespace nano_edr {
  
 struct WindowEntry {
@@ -24,7 +25,10 @@ public:
     static constexpr std::size_t kWindowCapacity = 256;
  
     explicit Agent(bool quiet);
+
+    Agent(bool quiet, uint64_t dedup_period_ms);
  
+    void Subscribe(AlertSink sink);
     void HandleEvent(const Event& event) override;
     void OnSkipped() override;
     void OnBroken() override;
@@ -33,13 +37,18 @@ public:
     void PrintSummary() const;
  
 private:
+    uint64_t dedup_window_{};
+    std::size_t dropped_{};
     RingBuffer<WindowEntry, kWindowCapacity> window_;
     bool quiet_;
+    EntityModel model_;
     RuleEngine engine_;
     std::size_t events_ = 0;
     std::map<std::string, std::size_t> events_by_type_;
     std::size_t skipped_ = 0;
     std::size_t broken_ = 0;
+    void PrintCtx();
+    bool context_printed_ = false;
 };
  
 }

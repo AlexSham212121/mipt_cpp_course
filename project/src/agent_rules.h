@@ -6,7 +6,8 @@
 
 namespace nano_edr {
     
-RuleEngine BuildAgentRules();
+RuleEngine BuildAgentRules(const EntityModel* model);
 
 }
+
 #endif
