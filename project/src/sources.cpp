@@ -20,15 +20,15 @@ void FileSource::Run(IEventHandler* handler) {
     while (std::getline(log_, line)) {
         try {
             if (IsBlankOrComment(line)){
-            handler->OnSkipped();
-            continue;
+                handler->OnSkipped();
+                continue;
             }
             EventParts parts;
             if (!ParseEventParts(line, &parts)) {
                 handler->OnBroken();
                 continue;
             }
-            Event event(parts);
+            Event event(std::move(parts));
             handler->HandleEvent(event);
         } catch (const std::exception& e) {
             handler->OnBroken();
@@ -52,7 +52,7 @@ void OsSource::Trampoline(const os_event* ev, void* ctx) noexcept {
         for (size_t i = 0; i < ev->field_count; ++i) {
             parts.fields.push_back({ev->fields[i].key, ev->fields[i].value});
         }
-        Event event(parts);
+        Event event(std::move(parts));
         handler->HandleEvent(event);
      } catch (const std::exception& e) {
         handler->OnBroken();

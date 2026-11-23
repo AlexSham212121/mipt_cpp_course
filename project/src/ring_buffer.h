@@ -3,6 +3,7 @@
 
 #include <cstddef>
 #include <array>
+#include <utility>
 
 #include "event.h"
 
@@ -32,10 +33,18 @@ class RingBuffer {
         size_t remaining_ = 0;
     };
 
-    void PushBack(const T& value){
-        c_[index_] = value;
+    void PushBack(const T& value) {
+    c_[index_] = value;
+    index_ = (index_ + 1) % N;
+    if (index_ == 0) {
+        is_full_ = true;
+    }
+    }
+
+    void PushBack(T&& value) {
+        c_[index_] = std::move(value);
         index_ = (index_ + 1) % N;
-        if (index_ == 0 ){
+        if (index_ == 0) {
             is_full_ = true;
         }
     }
